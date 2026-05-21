@@ -34,7 +34,7 @@ describe('bug-hunter run Playwright capture', () => {
     const report = await runBugHunter(startUrl, {
       output: outputRoot,
       timeout: 5000,
-      maxActions: 20,
+      maxActions: 10,
       slowThreshold: 100,
       trace: true
     });
@@ -54,6 +54,7 @@ describe('bug-hunter run Playwright capture', () => {
     expect(persistedReport.artifacts.reportMarkdownPath).toBe(join(outputRoot, persistedReport.runId, 'report.md'));
     expect(persistedReport.artifacts.reportHtmlPath).toBe(join(outputRoot, persistedReport.runId, 'report.html'));
     expect(persistedReport.artifacts.reproSpecPath).toBe(join(outputRoot, persistedReport.runId, 'repro.spec.ts'));
+    expect(persistedReport.artifacts.tracePath).toBe(join(outputRoot, persistedReport.runId, 'traces', 'trace.zip'));
     expect(persistedReport.issues.map((issue) => issue.type)).toEqual(
       expect.arrayContaining(['console_error', 'page_error', 'http_5xx', 'request_failed', 'slow_request', 'blank_page'])
     );
@@ -92,7 +93,14 @@ describe('bug-hunter run Playwright capture', () => {
     });
     expect(persistedReport.actions.find((action) => action.label === 'Docs')).toMatchObject({
       status: 'passed',
-      urlAfter: `${startUrl}details`
+      urlAfter: `${startUrl}details`,
+      depth: 1,
+      actionPath: ['Docs']
+    });
+    expect(persistedReport.actions.find((action) => action.label === 'Details action')).toMatchObject({
+      status: 'passed',
+      depth: 2,
+      actionPath: ['Docs', 'Details action']
     });
     expect(persistedReport.actions.find((action) => action.label === 'Same Origin')).toMatchObject({
       status: 'passed'
@@ -153,6 +161,9 @@ describe('bug-hunter run Playwright capture', () => {
     await expect(stat(persistedReport.artifacts.reproSpecPath)).resolves.toMatchObject({
       size: expect.any(Number)
     });
+    await expect(stat(persistedReport.artifacts.tracePath ?? '')).resolves.toMatchObject({
+      size: expect.any(Number)
+    });
     await expect(
       stat(join(outputRoot, persistedReport.runId, persistedReport.artifacts.screenshots[0] ?? ''))
     ).resolves.toMatchObject({
@@ -187,6 +198,65 @@ describe('bug-hunter run Playwright capture', () => {
 
     expect(persistedReport.summary.actionsExecuted).toBe(2);
     expect(persistedReport.actions.filter((action) => action.status === 'passed' || action.status === 'failed')).toHaveLength(2);
+  });
+
+  test('honors maxDepth during BFS exploration', async () => {
+    const server = await startFixtureServer();
+    servers.push(server);
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Expected local HTTP server to listen on a port');
+    }
+
+    const outputRootDepthOne = await mkdtemp(join(tmpdir(), 'bug-hunter-playwright-depth-one-'));
+    const outputRootDepthTwo = await mkdtemp(join(tmpdir(), 'bug-hunter-playwright-depth-two-'));
+    temporaryDirectories.push(outputRootDepthOne, outputRootDepthTwo);
+    const startUrl = `http://127.0.0.1:${address.port}/`;
+
+    const depthOneReport = await runBugHunter(startUrl, {
+      output: outputRootDepthOne,
+      timeout: 5000,
+      maxDepth: 1,
+      maxActions: 10,
+      trace: false
+    });
+    const depthTwoReport = await runBugHunter(startUrl, {
+      output: outputRootDepthTwo,
+      timeout: 5000,
+      maxDepth: 2,
+      maxActions: 10,
+      trace: false
+    });
+
+    expect(depthOneReport.actions.find((action) => action.label === 'Details action')).toBeUndefined();
+    expect(depthTwoReport.actions.find((action) => action.label === 'Details action')).toMatchObject({
+      status: 'passed',
+      depth: 2,
+      actionPath: ['Docs', 'Details action']
+    });
+  });
+
+  test('does not write traces when trace is disabled', async () => {
+    const server = await startFixtureServer();
+    servers.push(server);
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Expected local HTTP server to listen on a port');
+    }
+
+    const outputRoot = await mkdtemp(join(tmpdir(), 'bug-hunter-playwright-no-trace-'));
+    temporaryDirectories.push(outputRoot);
+    const startUrl = `http://127.0.0.1:${address.port}/`;
+
+    const report = await runBugHunter(startUrl, {
+      output: outputRoot,
+      timeout: 5000,
+      maxActions: 5,
+      trace: false
+    });
+
+    expect(report.artifacts.tracePath).toBeUndefined();
+    await expect(stat(join(outputRoot, report.runId, 'traces'))).rejects.toThrow();
   });
 
   test('does not execute cross-origin links when same-origin-only is disabled', async () => {
@@ -278,6 +348,7 @@ function startFixtureServer(): Promise<Server> {
 <html>
   <body>
     <h1>Details page with enough visible content</h1>
+    <button aria-label="Details action" onclick="console.error('details action')">Details action</button>
   </body>
 </html>`);
       return;

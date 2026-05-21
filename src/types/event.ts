@@ -25,4 +25,6 @@ export interface NetworkEvent {
   startedAt: string;
   endedAt?: string;
   durationMs?: number;
+  stepId?: string;
+  actionPath?: string[];
 }

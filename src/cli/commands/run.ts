@@ -1,11 +1,10 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { discoverActions } from '../../core/action-discovery.js';
-import { executePendingActions } from '../../core/action-executor.js';
 import { analyzeIssues } from '../../core/analyzer.js';
 import { detectBlankPage, type BlankPageResult } from '../../core/blank-page.js';
 import { openBrowserSession } from '../../core/browser.js';
+import { explorePage } from '../../core/explorer.js';
 import { attachBrowserRecorder, createNavigationErrorEvent } from '../../core/recorder.js';
 import { captureInitialScreenshot } from '../../core/screenshot.js';
 import { renderHtmlReport } from '../../reporters/html.js';
@@ -39,6 +38,7 @@ export async function runBugHunter(startUrl: string, options: RunCommandOptions)
   const reportMarkdownPath = join(runDirectory.runPath, 'report.md');
   const reportHtmlPath = join(runDirectory.runPath, 'report.html');
   const reproSpecPath = join(runDirectory.runPath, 'repro.spec.ts');
+  const tracePath = config.trace ? join(runDirectory.runPath, 'traces', 'trace.zip') : undefined;
   const screenshots: string[] = [];
   const actions: ActionStep[] = [];
   const blankPageResults: BlankPageResult[] = [];
@@ -46,35 +46,43 @@ export async function runBugHunter(startUrl: string, options: RunCommandOptions)
   const events = [];
   const networkEvents = [];
 
-  if (config.trace) {
-    await mkdir(join(runDirectory.runPath, 'traces'), { recursive: true });
-  }
-
   try {
-    const { browser, page } = await openBrowserSession(config.headful);
+    const { browser, context, page } = await openBrowserSession(config.headful);
     const recorder = attachBrowserRecorder(page);
+    let tracingStarted = false;
 
     try {
+      if (tracePath) {
+        await mkdir(join(runDirectory.runPath, 'traces'), { recursive: true });
+        await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+        tracingStarted = true;
+      }
+
       await page.goto(startUrl, { waitUntil: 'load', timeout: config.timeout });
       await page.waitForLoadState('networkidle', { timeout: config.timeout }).catch(() => undefined);
       await page.waitForTimeout(100);
-      actions.push(...(await discoverActions(page, { sameOriginOnly: config.sameOriginOnly, startUrl })));
       const initialScreenshot = await captureInitialScreenshot(page, runDirectory.runPath);
       screenshots.push(initialScreenshot);
       blankPageResults.push(await detectBlankPage(page, { screenshot: initialScreenshot }));
-      const executionResult = await executePendingActions(page, actions, {
+      const explorationResult = await explorePage(page, {
         runPath: runDirectory.runPath,
         maxActions: config.maxActions,
+        maxDepth: config.maxDepth,
         timeout: config.timeout,
-        startUrl
+        startUrl,
+        sameOriginOnly: config.sameOriginOnly,
+        recorder
       });
-      actions.splice(0, actions.length, ...executionResult.actions);
-      actionsExecuted = executionResult.actionsExecuted;
-      screenshots.push(...executionResult.screenshots);
-      blankPageResults.push(...executionResult.blankPageResults);
+      actions.splice(0, actions.length, ...explorationResult.actions);
+      actionsExecuted = explorationResult.actionsExecuted;
+      screenshots.push(...explorationResult.screenshots);
+      blankPageResults.push(...explorationResult.blankPageResults);
     } catch (error) {
       recorder.events.push(createNavigationErrorEvent(errorMessage(error), startUrl));
     } finally {
+      if (tracingStarted && tracePath) {
+        await context.tracing.stop({ path: tracePath }).catch(() => undefined);
+      }
       await browser.close();
     }
 
@@ -107,6 +115,7 @@ export async function runBugHunter(startUrl: string, options: RunCommandOptions)
       reportMarkdownPath,
       reportHtmlPath,
       reproSpecPath,
+      ...(tracePath ? { tracePath } : {}),
       screenshots
     }
   };

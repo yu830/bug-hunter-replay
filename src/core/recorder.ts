@@ -9,9 +9,15 @@ interface TrackedRequest {
   startedAtMs: number;
 }
 
+export interface RecorderActionContext {
+  stepId: string;
+  actionPath: string[];
+}
+
 export interface BrowserRecorder {
   events: RawCapturedEvent[];
   networkEvents: NetworkEvent[];
+  setActionContext(context: RecorderActionContext | undefined): void;
 }
 
 export function attachBrowserRecorder(page: Page): BrowserRecorder {
@@ -20,6 +26,7 @@ export function attachBrowserRecorder(page: Page): BrowserRecorder {
   const requests = new Map<Request, TrackedRequest>();
   let eventCounter = 0;
   let networkCounter = 0;
+  let actionContext: RecorderActionContext | undefined;
 
   function nextEventId(): string {
     eventCounter += 1;
@@ -38,8 +45,29 @@ export function attachBrowserRecorder(page: Page): BrowserRecorder {
       message,
       url,
       timestamp: new Date().toISOString(),
-      ...(metadata ? { metadata } : {})
+      ...mergedMetadata(metadata)
     });
+  }
+
+  function mergedMetadata(metadata?: Record<string, unknown>): { metadata?: Record<string, unknown> } {
+    const contextMetadata = actionContext
+      ? {
+          stepId: actionContext.stepId,
+          actionPath: actionContext.actionPath
+        }
+      : {};
+    const merged = { ...metadata, ...contextMetadata };
+
+    return Object.keys(merged).length > 0 ? { metadata: merged } : {};
+  }
+
+  function networkActionContext(): Pick<NetworkEvent, 'stepId' | 'actionPath'> {
+    return actionContext
+      ? {
+          stepId: actionContext.stepId,
+          actionPath: actionContext.actionPath
+        }
+      : {};
   }
 
   page.on('console', (message: ConsoleMessage) => {
@@ -61,7 +89,8 @@ export function attachBrowserRecorder(page: Page): BrowserRecorder {
         requestUrl: request.url(),
         method: request.method(),
         resourceType: request.resourceType(),
-        startedAt: new Date().toISOString()
+        startedAt: new Date().toISOString(),
+        ...networkActionContext()
       },
       startedAtMs: performance.now()
     });
@@ -98,7 +127,8 @@ export function attachBrowserRecorder(page: Page): BrowserRecorder {
       requestUrl: request.url(),
       method: request.method(),
       resourceType: request.resourceType(),
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      ...networkActionContext()
     };
     const failedText = request.failure()?.errorText ?? 'Request failed';
 
@@ -110,7 +140,13 @@ export function attachBrowserRecorder(page: Page): BrowserRecorder {
     pushEvent('request_failed', failedText, request.url());
   });
 
-  return { events, networkEvents };
+  return {
+    events,
+    networkEvents,
+    setActionContext(context: RecorderActionContext | undefined): void {
+      actionContext = context;
+    }
+  };
 }
 
 export function createNavigationErrorEvent(message: string, url: string): RawCapturedEvent {

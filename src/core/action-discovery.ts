@@ -42,6 +42,7 @@ export async function discoverActions(page: Page, context?: ActionDiscoveryConte
     return Array.from(document.querySelectorAll(selector)).map((element) => {
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
+      const form = element instanceof HTMLButtonElement || element instanceof HTMLInputElement ? element.form : null;
       const isVisible =
         !element.hasAttribute('hidden') &&
         style.display !== 'none' &&
@@ -67,7 +68,10 @@ export async function discoverActions(page: Page, context?: ActionDiscoveryConte
           value: element.getAttribute('value'),
           placeholder: element.getAttribute('placeholder'),
           name: element.getAttribute('name'),
-          id: element.getAttribute('id')
+          id: element.getAttribute('id'),
+          formaction: element.getAttribute('formaction'),
+          formAction: form?.getAttribute('action') ?? null,
+          insideForm: form ? 'true' : null
         }
       };
     });
@@ -93,14 +97,20 @@ export function buildElementAction(
     urlBefore,
     depth: 0,
     status: 'pending',
+    actionPath: [labelForElement(element)],
     metadata: {
       tagName: element.tagName.toLowerCase(),
-      inputType: element.getAttribute('type')?.toLowerCase(),
-      href: element.getAttribute('href') ?? undefined
+      inputType: element.getAttribute('type')?.toLowerCase() ?? '',
+      href: element.getAttribute('href') ?? undefined,
+      formAction: element.getAttribute('formaction') ?? element.getAttribute('formAction') ?? undefined,
+      ariaLabel: element.getAttribute('aria-label') ?? undefined,
+      name: element.getAttribute('name') ?? undefined,
+      id: element.getAttribute('id') ?? undefined,
+      insideForm: element.getAttribute('insideForm') === 'true'
     }
   };
 
-  return applyPreExecutionSafetyGates(action, element, context);
+  return evaluateActionSafety(applyPreExecutionSafetyGates(action, element, context));
 }
 
 export function actionTypeForElement(element: DiscoverableElement): ActionStepType {

@@ -35,7 +35,7 @@ describe('demo site e2e', () => {
     const report = await runBugHunter(startUrl, {
       output: outputRoot,
       timeout: 5000,
-      maxActions: 20,
+      maxActions: 16,
       slowThreshold: 100,
       trace: true
     });

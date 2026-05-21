@@ -1,13 +1,15 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 
 export interface BrowserSession {
   browser: Browser;
+  context: BrowserContext;
   page: Page;
 }
 
 export async function openBrowserSession(headful: boolean): Promise<BrowserSession> {
   const browser = await chromium.launch({ headless: !headful });
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  const page = await context.newPage();
 
-  return { browser, page };
+  return { browser, context, page };
 }

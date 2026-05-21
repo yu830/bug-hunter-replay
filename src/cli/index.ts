@@ -45,6 +45,7 @@ export function createCliProgram(): Command {
     .option('--headful', 'run browser in headful mode', false)
     .option('--same-origin-only', 'limit exploration to same-origin URLs', true)
     .option('--trace', 'collect Playwright trace when available', true)
+    .option('--no-trace', 'disable Playwright trace collection')
     .action(async (url: string, options: Record<string, string | boolean | undefined>) => {
       const report = await runBugHunter(url, options);
       console.log(`Report written to ${report.artifacts.reportJsonPath}`);

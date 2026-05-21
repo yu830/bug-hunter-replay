@@ -62,7 +62,8 @@ describe('action discovery helpers', () => {
       selector: '[data-testid="save-button"]',
       urlBefore: 'https://example.com/settings',
       depth: 0,
-      status: 'pending'
+      status: 'pending',
+      actionPath: ['Save changes']
     });
   });
 
@@ -75,7 +76,7 @@ describe('action discovery helpers', () => {
     });
   });
 
-  test.each([
+  test.each<DiscoverableElement>([
     element({ tagName: 'button', textContent: 'Disabled Button', attributes: { disabled: '' } }),
     element({ tagName: 'input', attributes: { type: 'text', 'aria-label': 'Disabled Input', disabled: '' } }),
     element({ tagName: 'div', textContent: 'Role Button', attributes: { role: 'button', 'aria-disabled': 'true' } })
@@ -127,6 +128,43 @@ describe('action discovery helpers', () => {
       )
     ).toMatchObject({
       status: 'pending'
+    });
+  });
+
+  test.each<{ attributes: Record<string, string | null>; skipReason: string }>([
+    {
+      attributes: { type: 'password', 'aria-label': 'Password' },
+      skipReason: 'Unsafe input type skipped: password'
+    },
+    {
+      attributes: { type: 'file', 'aria-label': 'Upload' },
+      skipReason: 'Unsafe input type skipped: file'
+    },
+    {
+      attributes: { type: 'submit', value: 'Save' },
+      skipReason: 'Form submit skipped by default'
+    }
+  ])('skips unsafe input actions %#', ({ attributes, skipReason }) => {
+    expect(buildElementAction(element({ tagName: 'input', attributes }), 0, 'https://example.com')).toMatchObject({
+      status: 'skipped',
+      skipReason
+    });
+  });
+
+  test('skips default submit buttons inside forms', () => {
+    expect(
+      buildElementAction(
+        element({
+          tagName: 'button',
+          textContent: 'Save',
+          attributes: { insideForm: 'true' }
+        }),
+        0,
+        'https://example.com'
+      )
+    ).toMatchObject({
+      status: 'skipped',
+      skipReason: 'Form submit skipped by default'
     });
   });
 });

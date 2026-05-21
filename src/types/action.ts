@@ -11,6 +11,8 @@ export interface ActionStep {
   urlBefore: string;
   depth: number;
   status: ActionStepStatus;
+  actionPath?: string[];
+  parentId?: string;
   startedAt?: string;
   endedAt?: string;
   urlAfter?: string;

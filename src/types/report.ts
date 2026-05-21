@@ -41,6 +41,7 @@ export interface BugHunterReportArtifacts {
   reportMarkdownPath: string;
   reportHtmlPath: string;
   reproSpecPath: string;
+  tracePath?: string;
   screenshots: string[];
 }
 

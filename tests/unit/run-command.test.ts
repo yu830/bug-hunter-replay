@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -112,6 +112,24 @@ describe('bug-hunter run command', () => {
       sameOriginOnly: true,
       trace: true
     });
+  });
+
+  test('parses --no-trace and does not create a traces directory', async () => {
+    const outputRoot = await mkdtemp(join(tmpdir(), 'bug-hunter-run-command-no-trace-'));
+    temporaryDirectories.push(outputRoot);
+    const program = createCliProgram();
+    program.exitOverride();
+
+    await program.parseAsync(
+      ['run', 'http://127.0.0.1:9/', '--timeout', '1000', '--output', outputRoot, '--no-trace'],
+      { from: 'user' }
+    );
+
+    const report = await readOnlyReport(outputRoot);
+
+    expect(report.config.trace).toBe(false);
+    expect(report.artifacts.tracePath).toBeUndefined();
+    await expect(stat(join(outputRoot, report.runId, 'traces'))).rejects.toThrow();
   });
 });
 

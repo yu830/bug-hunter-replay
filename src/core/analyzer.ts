@@ -26,9 +26,10 @@ interface IssueDraft {
 
 export function analyzeIssues(input: AnalyzeIssuesInput): CapturedIssue[] {
   const slowThreshold = input.slowThreshold ?? 3000;
+  const actionById = new Map(input.actions.map((action) => [action.id, action]));
   const drafts = [
-    ...input.events.flatMap(issueDraftsForEvent),
-    ...input.networkEvents.flatMap((event) => issueDraftsForNetworkEvent(event, slowThreshold)),
+    ...input.events.flatMap((event) => issueDraftsForEvent(event, actionById)),
+    ...input.networkEvents.flatMap((event) => issueDraftsForNetworkEvent(event, slowThreshold, actionById)),
     ...input.actions.flatMap(issueDraftsForAction),
     ...(input.blankPageResults ?? []).flatMap(issueDraftsForBlankPage)
   ];
@@ -53,8 +54,10 @@ export function analyzeIssues(input: AnalyzeIssuesInput): CapturedIssue[] {
   return issues;
 }
 
-function issueDraftsForEvent(event: RawCapturedEvent): IssueDraft[] {
+function issueDraftsForEvent(event: RawCapturedEvent, actionById: Map<string, ActionStep>): IssueDraft[] {
   if (event.type === 'console_error') {
+    const actionContext = issueActionContext(event.metadata, actionById);
+
     return [
       {
         type: 'console_error',
@@ -62,7 +65,7 @@ function issueDraftsForEvent(event: RawCapturedEvent): IssueDraft[] {
         title: 'Console error',
         message: event.message,
         url: event.url,
-        actionPath: [],
+        ...actionContext,
         timestamp: event.timestamp,
         metadata: event.metadata
       }
@@ -70,6 +73,8 @@ function issueDraftsForEvent(event: RawCapturedEvent): IssueDraft[] {
   }
 
   if (event.type === 'page_error') {
+    const actionContext = issueActionContext(event.metadata, actionById);
+
     return [
       {
         type: 'page_error',
@@ -77,7 +82,7 @@ function issueDraftsForEvent(event: RawCapturedEvent): IssueDraft[] {
         title: 'Page error',
         message: event.message,
         url: event.url,
-        actionPath: [],
+        ...actionContext,
         timestamp: event.timestamp,
         metadata: event.metadata
       }
@@ -87,8 +92,13 @@ function issueDraftsForEvent(event: RawCapturedEvent): IssueDraft[] {
   return [];
 }
 
-function issueDraftsForNetworkEvent(event: NetworkEvent, slowThreshold: number): IssueDraft[] {
+function issueDraftsForNetworkEvent(
+  event: NetworkEvent,
+  slowThreshold: number,
+  actionById: Map<string, ActionStep>
+): IssueDraft[] {
   const drafts: IssueDraft[] = [];
+  const actionContext = issueActionContext(event, actionById);
 
   if (event.failedText) {
     drafts.push({
@@ -97,7 +107,7 @@ function issueDraftsForNetworkEvent(event: NetworkEvent, slowThreshold: number):
       title: 'Request failed',
       message: event.failedText,
       url: event.requestUrl,
-      actionPath: [],
+      ...actionContext,
       timestamp: event.endedAt ?? event.startedAt,
       metadata: networkMetadata(event)
     });
@@ -110,7 +120,7 @@ function issueDraftsForNetworkEvent(event: NetworkEvent, slowThreshold: number):
       title: `HTTP ${event.status}`,
       message: event.statusText || `HTTP ${event.status}`,
       url: event.requestUrl,
-      actionPath: [],
+      ...actionContext,
       timestamp: event.endedAt ?? event.startedAt,
       metadata: networkMetadata(event)
     });
@@ -123,7 +133,7 @@ function issueDraftsForNetworkEvent(event: NetworkEvent, slowThreshold: number):
       title: `HTTP ${event.status}`,
       message: event.statusText || `HTTP ${event.status}`,
       url: event.requestUrl,
-      actionPath: [],
+      ...actionContext,
       timestamp: event.endedAt ?? event.startedAt,
       metadata: networkMetadata(event)
     });
@@ -136,7 +146,7 @@ function issueDraftsForNetworkEvent(event: NetworkEvent, slowThreshold: number):
       title: 'Slow request',
       message: `Slow request: ${event.durationMs}ms`,
       url: event.requestUrl,
-      actionPath: [],
+      ...actionContext,
       timestamp: event.endedAt ?? event.startedAt,
       metadata: {
         durationMs: event.durationMs,
@@ -163,7 +173,7 @@ function issueDraftsForAction(action: ActionStep): IssueDraft[] {
       message: action.errorMessage ?? 'Action failed',
       url: action.urlBefore,
       stepId: action.id,
-      actionPath: [action.label],
+      actionPath: action.actionPath ?? [action.label],
       screenshot: action.screenshotAfter,
       timestamp: action.endedAt ?? action.startedAt ?? new Date(0).toISOString(),
       metadata: action.metadata
@@ -215,7 +225,26 @@ function networkMetadata(event: NetworkEvent): Record<string, unknown> {
     resourceType: event.resourceType,
     status: event.status,
     statusText: event.statusText,
-    durationMs: event.durationMs
+    durationMs: event.durationMs,
+    stepId: event.stepId,
+    actionPath: event.actionPath
+  };
+}
+
+function issueActionContext(
+  source: Record<string, unknown> | Pick<NetworkEvent, 'stepId' | 'actionPath'> | undefined,
+  actionById: Map<string, ActionStep>
+): Pick<IssueDraft, 'stepId' | 'actionPath' | 'screenshot'> {
+  const stepId = typeof source?.stepId === 'string' ? source.stepId : undefined;
+  const action = stepId ? actionById.get(stepId) : undefined;
+  const actionPath = Array.isArray(source?.actionPath)
+    ? source.actionPath.filter((value): value is string => typeof value === 'string')
+    : action?.actionPath;
+
+  return {
+    ...(stepId ? { stepId } : {}),
+    actionPath: actionPath ?? [],
+    ...(action?.screenshotAfter ? { screenshot: action.screenshotAfter } : {})
   };
 }
 

@@ -12,7 +12,8 @@ function action(label: string): ActionStep {
     selector: `text=${label}`,
     urlBefore: 'https://example.com',
     depth: 0,
-    status: 'pending'
+    status: 'pending',
+    metadata: {}
   };
 }
 
@@ -27,7 +28,10 @@ describe('evaluateActionSafety', () => {
     'Checkout',
     'Submit order',
     'Logout',
-    'Sign out'
+    'Sign out',
+    '删除账号',
+    '退出登录',
+    '支付订单'
   ])('skips dangerous action label %s', (label) => {
     const result = evaluateActionSafety(action(label));
 
@@ -40,5 +44,53 @@ describe('evaluateActionSafety', () => {
 
     expect(result.status).toBe('pending');
     expect(result).not.toHaveProperty('skipReason');
+  });
+
+  test('checks href, form action, aria-label, name, and id for risky text', () => {
+    const result = evaluateActionSafety({
+      ...action('Continue'),
+      metadata: {
+        href: '/account/delete',
+        formAction: '/billing/checkout',
+        ariaLabel: 'Continue',
+        name: 'submit-order',
+        id: 'pay-now'
+      }
+    });
+
+    expect(result.status).toBe('skipped');
+    expect(result.skipReason).toContain('Dangerous action keyword');
+  });
+
+  test.each([
+    { tagName: 'input', inputType: 'submit' },
+    { tagName: 'button', inputType: 'submit' },
+    { tagName: 'button', inputType: '', insideForm: true }
+  ])('skips submit action metadata %#', (metadata) => {
+    const result = evaluateActionSafety({
+      ...action('Save'),
+      metadata
+    });
+
+    expect(result).toMatchObject({
+      status: 'skipped',
+      skipReason: 'Form submit skipped by default'
+    });
+  });
+
+  test.each(['password', 'file'])('skips unsafe %s inputs', (inputType) => {
+    const result = evaluateActionSafety({
+      ...action('Secret'),
+      type: 'fill',
+      metadata: {
+        tagName: 'input',
+        inputType
+      }
+    });
+
+    expect(result).toMatchObject({
+      status: 'skipped',
+      skipReason: `Unsafe input type skipped: ${inputType}`
+    });
   });
 });
