@@ -52,6 +52,10 @@ corepack pnpm dev -- run http://127.0.0.1:4173/ --max-depth 2 --max-actions 16 -
 
 The CLI prints the generated `report.json` path under `reports/<run-id>/`.
 
+## Report Preview
+
+![Bug Hunter Replay report overview](docs/images/report-overview.png)
+
 ## Demo Site
 
 The demo site is a lightweight local Node.js HTTP server with stable routes for showcasing the capture pipeline:
@@ -148,3 +152,7 @@ corepack pnpm typecheck
 ## Resume Description Suggestion
 
 Built a local-first TypeScript CLI using Playwright to perform queue-based bounded BFS exploration of web pages, safely execute UI actions, capture console/runtime/network failures, detect slow requests and blank pages, save screenshot and trace evidence, and generate JSON/Markdown/HTML reports plus issue-aware Playwright reproduction specs. Added a deterministic local demo site, unit/integration/e2e tests, and CI coverage for build, tests, linting, type checking, and browser installation.
+
+中文简历描述：
+
+开发基于 Playwright 的 local-first Web Bug 自动探索 CLI，支持 bounded BFS 页面交互探索、Console/Page Error 捕获、Network 异常检测、HTTP 4xx/5xx 识别、慢请求与空白页检测，并生成 JSON/Markdown/HTML 报告、截图证据、trace.zip 与 issue-aware Playwright 复现脚本；配套本地 demo site、Vitest 测试与 CI 校验流程。
